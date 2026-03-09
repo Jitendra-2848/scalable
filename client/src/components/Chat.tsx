@@ -7,7 +7,7 @@ interface ChatProps {
 }
 
 const Chat: React.FC<ChatProps> = () => {
-  const { selectedUser, messages, sendMessage } = useChat();
+  const { selectedUser, messages, sendMessage, handleTyping } = useChat();
   const [msg, setMsg] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -69,8 +69,8 @@ const Chat: React.FC<ChatProps> = () => {
                 ref={messagesEndRef}
                 key={idx}
                 className={`px-2 py-1 relative text-sm rounded-md shadow-sm border max-w-[70%] ${msg.sender_id !== selectedUser.id
-                    ? 'self-end bg-[#5cc55c] rounded-br-none text-white border-green-600 pe-12'
-                    : 'self-start rounded-bl-none bg-white text-black border-gray-300 pe-12'
+                  ? 'self-end bg-[#5cc55c] rounded-br-none text-white border-green-600 pe-12'
+                  : 'self-start rounded-bl-none bg-white text-black border-gray-300 pe-12'
                   }`}
               >
                 {msg.message}
@@ -97,7 +97,7 @@ const Chat: React.FC<ChatProps> = () => {
             className="border-gray-100 focus:ring-2 rounded-lg bg-gray-100 flex-1 px-2 py-1 text-sm focus:outline-none focus:transition-all duration-300"
             placeholder="message..."
             value={msg}
-            onChange={(e) => setMsg(e.target.value)}
+            onChange={(e) => { setMsg(e.target.value); handleTyping() }}
             onKeyDown={(e) => e.key === 'Enter' && handleMessageSend()}
           />
           <button

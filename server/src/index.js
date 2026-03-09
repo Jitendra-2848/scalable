@@ -53,6 +53,15 @@ io.on("connection", (socket) => {
             io.to(receiverSocket).emit("onMessage", message);
         }
     })
+    socket.on("typing",(id)=>{
+        console.log(id);
+        const receiverSocket = room.get(id);
+        console.log(id);
+        console.log(receiverSocket);
+        if (receiverSocket) {
+            io.to(receiverSocket).emit("Typing",socket.user_id);
+        }
+    })
     socket.on("disconnect", () => {
         if (socket.user_id) room.delete(socket.user_id)
     })

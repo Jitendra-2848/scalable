@@ -33,6 +33,7 @@ export interface ChatContextType {
   setSearchQuery: (q: string) => void;
   filteredUsers: User[];
   addMessageFromSocket: (msg: Message) => void;
+  handleTyping: () => void;
 }
 
 // Converts user_id or id to unified id - single entry point for all user formats

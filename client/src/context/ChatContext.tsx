@@ -119,6 +119,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     }));
   }, []); 
 
+  const handleTyping = useCallback(()=>{
+    console.log(selectedUser?.id);
+    socket?.emit("typing",selectedUser?.id)
+  },[socket,selectedUser]);
+
   useEffect(() => {
     if (!socket) return;
 
@@ -126,8 +131,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log("Received message from socket:", msg);
       addMessageFromSocket(msg);
     };
-
     socket.on("onMessage", handleMessage);
+    socket.on("Typing",handleSocketTyping)
     return () => {
       socket.off("onMessage", handleMessage);
     };
@@ -157,6 +162,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       filteredUsers,
       getAllUser,
       addMessageFromSocket,
+      handleTyping
     }),
     [
       selectedUser,
