@@ -7,7 +7,7 @@ interface ChatProps {
 }
 
 const Chat: React.FC<ChatProps> = () => {
-  const { selectedUser, messages, sendMessage, handleTyping } = useChat();
+  const { selectedUser, messages, sendMessage, handleTyping,typingUsers,onlineUser } = useChat();
   const [msg, setMsg] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -21,6 +21,10 @@ const Chat: React.FC<ChatProps> = () => {
     setMsg('');
   };
 
+
+  // console.log(typingUsers[selectedUser?.id])
+
+
   if (!selectedUser) {
     return (
       <div className="w-full h-screen flex flex-col justify-center items-center bg-gray-50">
@@ -31,7 +35,7 @@ const Chat: React.FC<ChatProps> = () => {
       </div>
     );
   }
-
+  console.log(typingUsers[selectedUser.id])
   return (
     <div className="w-full">
       <div className="w-full h-screen flex flex-col justify-center overflow-hidden">
@@ -45,7 +49,7 @@ const Chat: React.FC<ChatProps> = () => {
             <div className="flex flex-col px-3">
               <h1 className="font-semibold leading-tight text-2xl">{selectedUser.name}</h1>
               <h1 className="font-normal text-sm px-1">
-                {selectedUser?.isonline ? 'Online' : 'Offline'}
+                {onlineUser.includes(selectedUser.id) ? (typingUsers[selectedUser.id] ? 'Typing...' : 'Online') : `last seen at ${selectedUser.last_message_time?.split('T')[1].split(':').splice(0,2).join(":")}`}
               </h1>
             </div>
           </div>

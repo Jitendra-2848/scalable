@@ -8,7 +8,8 @@ interface PeopleProps {
 }
 
 const People: React.FC<PeopleProps> = ({ onAddClick }) => {
-  const { filteredUsers, selectUser, users, selectedUser, searchQuery, setSearchQuery } = useChat();
+  const { filteredUsers, selectUser, users, selectedUser, searchQuery, setSearchQuery,typingUsers,onlineUser } = useChat();
+  console.log(onlineUser)
   return (
     <div className="sm:max-w-[25%] w-full h-screen flex flex-col overflow-hidden border-r border-gray-200">
       <div className="p-2 bg-orange-300 flex-none">
@@ -45,14 +46,17 @@ const People: React.FC<PeopleProps> = ({ onAddClick }) => {
               }`}
             >
               <div className="flex items-center min-w-0">
+                <div className='relative flex'>
                 <img
-                  src={user.avatar}
+                  src={"https://imgs.search.brave.com/DE8tZqGXb9pcE5A9zL4XpwutCnn_iwIWhp4LjBenToM/rs:fit:500:0:1:0/g:ce/aHR0cHM6Ly93YWxs/cGFwZXJzLmNvbS9p/bWFnZXMvaGQvc2hp/bmluZy1uZW9uLXMt/enFzNHh3NWJibzhv/c2I4OC5qcGc"}
                   alt={user.name}
-                  className="h-12 w-12 rounded-full flex-none object-cover border border-gray-300"
+                  className="h-8 sm:h-10 md:h-12 aspect-[1] rounded-full flex-none object-cover border border-gray-300"
                 />
-                <div className="flex flex-col px-3 min-w-0">
+                <span className={onlineUser.includes(user.id) ? `bg-green-500 w-2 aspect-[1] absolute right-0.5 bottom-1 rounded-full` : "hidden"}></span>
+                </div>
+                <div className="flex flex-col px-1 sm:px-2 md:px-3 min-w-0">
                   <h1 className="font-semibold text-base truncate">{user.name}</h1>
-                  <h1 className="text-sm px-4 text-gray-500 truncate">{user.last_message}</h1>
+                  <h1 className="text-sm sm:px-1 md:px-2 text-gray-500 truncate">{typingUsers[user.id] ? "Typing" : user.last_message }</h1>
                 </div>
               </div>
               <div className="flex-none">

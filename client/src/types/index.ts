@@ -10,6 +10,7 @@ export interface User {
   lastMessage?: string;
   lastSeen?: string;
   conversation_id?: number;
+  typing?:boolean
 }
 
 export interface Message {
@@ -20,6 +21,8 @@ export interface Message {
   sendedbyme: boolean;
   exist: boolean;
   sender_id:number;
+  typing?:boolean;
+  isOnline?:boolean,
 }
 
 export interface ChatContextType {
@@ -34,6 +37,7 @@ export interface ChatContextType {
   filteredUsers: User[];
   addMessageFromSocket: (msg: Message) => void;
   handleTyping: () => void;
+  typingUsers: [];
 }
 
 // Converts user_id or id to unified id - single entry point for all user formats
@@ -49,8 +53,9 @@ export const normalizeUser = (rawUser: any): User => {
     name: rawUser.name,
     email: rawUser.email,
     avatar: rawUser.avatar,
-    isonline: rawUser.isonline,
-    lastMessage: rawUser.lastMessage || rawUser.last_message,
+    isOnline: rawUser.isonline,
+    last_message: rawUser.lastMessage || rawUser.last_message,
+    last_message_time: rawUser.last_message_time,
     lastSeen: rawUser.lastSeen || rawUser.last_seen,
     conversation_id: rawUser.conversation_id,
   };

@@ -19,9 +19,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   const [messagesMap, setMessagesMap] = useState<Record<number, Message[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [users, setUsers] = useState<User[]>([]);
+  const [typingUsers, setTypingUsers] = useState<Record<number, boolean>>({});
   const { userdetail } = useUser();
   const { sendMsg, socket } = useSocket();
-
+  const [onlineUser,setOnlineUsers] = useState([]); 
   // Fetch all users 
   const getAllUser = useCallback(async () => {
     try {
@@ -34,6 +35,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       console.error("Error fetching users:", err);
     }
   }, []);
+
+  console.log(typingUsers);
 
   //  Add user if not in list 
   const addUserIfNotExists = useCallback((user: User) => {
@@ -109,7 +112,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
 
       sendMsg(newMsg);
     },
-    [selectedUser, sendMsg, userdetail] 
+    [selectedUser, sendMsg, userdetail]
   );
 
   const addMessageFromSocket = useCallback((msg: Message) => {
@@ -117,12 +120,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       ...prev,
       [msg.sender_id]: [...(prev[msg.sender_id] || []), msg],
     }));
-  }, []); 
+  }, []);
 
-  const handleTyping = useCallback(()=>{
+  const handleTyping = useCallback(() => {
     console.log(selectedUser?.id);
-    socket?.emit("typing",selectedUser?.id)
-  },[socket,selectedUser]);
+    socket?.emit("typing", selectedUser?.id)
+  }, [socket, selectedUser]);
 
   useEffect(() => {
     if (!socket) return;
@@ -131,10 +134,30 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log("Received message from socket:", msg);
       addMessageFromSocket(msg);
     };
+    const handleSocketTyping = (userId: number) => {
+      setTypingUsers(prev => ({
+        ...prev,
+        [userId]: true
+      }))
+
+      setTimeout(() => {
+        setTypingUsers(prev => ({
+          ...prev,
+          [userId]: false
+        }))
+      }, 2000)
+    }
+    const handleOnlineUser = (x:any)=>{
+      // console.log(x);
+      setOnlineUsers(x);
+    }
+    socket.on("onlineUsers",handleOnlineUser);
     socket.on("onMessage", handleMessage);
-    socket.on("Typing",handleSocketTyping)
+    socket.on("Typing", handleSocketTyping)
     return () => {
+      socket.off("onlineUsers",handleOnlineUser);
       socket.off("onMessage", handleMessage);
+      socket.off("Typing", handleSocketTyping)
     };
   }, [socket, addMessageFromSocket]);
 
@@ -162,7 +185,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       filteredUsers,
       getAllUser,
       addMessageFromSocket,
-      handleTyping
+      handleTyping,
+      typingUsers,
+      onlineUser
     }),
     [
       selectedUser,
@@ -174,6 +199,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       filteredUsers,
       getAllUser,
       addMessageFromSocket,
+      handleTyping,
+      typingUsers,
+      onlineUser
     ]
   );
 

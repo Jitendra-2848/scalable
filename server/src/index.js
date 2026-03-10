@@ -43,6 +43,8 @@ let room = new Map();
 io.on("connection", (socket) => {
     socket.on("join", (id) => {
         room.set(id, socket.id);
+        socket.emit("onlineUsers",Array.from(room.keys()));
+        socket.broadcast.emit("onlineUsers",Array.from(room.keys()));
         socket.user_id = id;
         console.log(room);
     })
@@ -64,6 +66,7 @@ io.on("connection", (socket) => {
     })
     socket.on("disconnect", () => {
         if (socket.user_id) room.delete(socket.user_id)
+        socket.broadcast.emit("onlineUsers",Array.from(room.keys()));
     })
 })
 

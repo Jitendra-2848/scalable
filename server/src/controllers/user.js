@@ -40,7 +40,7 @@ WHERE cp.conversation_id IN (
 AND cp.user_id <> $1
 ORDER BY cp.conversation_id, last_message_time DESC;
     `, [req.user.id]);
-
+      console.log(users.rows);
     return res.status(200).json({
       message: "Users you chatted with",
       data: users.rows
