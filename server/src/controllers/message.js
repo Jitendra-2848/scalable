@@ -47,10 +47,7 @@ export const sendmessage = async (req, res) => {
       }
     }
 
-    // await pool.query(
-    //   "INSERT INTO messages (sender_id, message, seen, status, deleted, conversation_id) VALUES ($1, $2, $3, $4, $5, $6)",
-    //   [currentUserId, message, false, 'delivered', false, convId]
-    // );
+    
 
     message_saving(req.body);
 

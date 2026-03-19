@@ -7,6 +7,7 @@ import cors from "cors";
 import cookie_parser from "cookie-parser";
 import User_API from "./routes/User.js";
 import {server,app,express} from "./utils/socket.js"
+import "./data/worker.js";
 
 app.use(express.json());
 app.use(cookie_parser());
