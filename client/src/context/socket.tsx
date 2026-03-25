@@ -24,20 +24,35 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({
   const [socket, setSocket] = useState<Socket | null>(null);
 
   useEffect(() => {
-    const s = io("http://localhost:8000");
+    const s = io("http://localhost:8000",{
+      withCredentials:true,
+      transports: ["websocket", "polling"]
+    });
     setSocket(s);
     return () => {
       s.disconnect();
       setSocket(null);
     };
   }, []);
-
-  const joining = useCallback(
-    (id: number) => {
-      socket?.emit("join", id);
-    },
-    [socket]
-  );
+  
+ const joining = useCallback(
+  (id: number) => {
+    if (!socket) {
+      console.log("Socket not ready yet");
+      return;
+    }
+    if (socket.connected) {
+      socket.emit("join", id);          
+      socket.emit("get_online_users");  
+    } else {
+      socket.once("connect", () => {
+        socket.emit("join", id);
+        socket.emit("get_online_users");
+      });
+    }
+  },
+  [socket]
+);
 
   const sendMsg = useCallback(
     async (msg: Message) => {

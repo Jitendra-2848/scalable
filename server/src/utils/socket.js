@@ -2,11 +2,14 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import { createRedis, publish, subscribe, getRedisClient } from "./redisClient.js";
-
+import jwt from "jsonwebtoken";
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" },
+  cors: {
+    origin: "http://localhost:5173",
+    credentials: true,
+  },
 });
 
 const userSocketMap = new Map();
@@ -41,7 +44,7 @@ const initSocket = async () => {
   redis = await getRedisClient();
 
   if (!redis) {
-    throw new Error("Redis client failed to initialize!");
+    // throw new Error("Redis client failed to initialize!");
   }
 
   console.log("✅ Redis connected");
@@ -60,9 +63,20 @@ const initSocket = async () => {
 
   console.log("✅ Redis subscribed");
 
+  io.use((socket, next) => {
+    const cookieHeader = socket.handshake.headers.cookie; // string of cookies
+    const cookies = cookieHeader.split(";").map(c => c.trim());
+    try {
+      const jwtCookie = cookies.find(c => c.startsWith("jwt=")).split("=")[1];
+      const decoded = jwt.verify(jwtCookie, process.env.JWT_SECRET);
+      console.log(decoded.userId);
+      socket.userId = decoded.userId;
+      next();
+    } catch (err) {
+      next(new Error("Invalid JWT"));
+    }
+  })
   io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id);
-
     socket.on("join", async (rawUserId) => {
       const userId = Number(rawUserId);
       if (isNaN(userId)) return;

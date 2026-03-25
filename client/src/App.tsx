@@ -12,12 +12,16 @@ const App: React.FC = () => {
   const { userdetail,auth,getuser } = useUser();
   const { joining } = useSocket();
   const {getAllUser} = useChat(); 
-  // ✅ derive auth directly
   useEffect(()=>{
     getuser()
     getAllUser();
-    if(userdetail.id) joining(userdetail.id)
   },[auth])
+
+  useEffect(() => {
+  if (userdetail?.id) {
+    joining(userdetail.id);
+  }
+}, [userdetail?.id, joining]);
 
   return (
     <>
