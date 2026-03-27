@@ -12,6 +12,7 @@ import {
 // Create conversation if needed, then send message
 export const sendmessage = async (req, res) => {
   try {
+    console.log(req.body);
     const { conversation_id, id, message } = req.body;
     const currentUserId = req.user.id;
 
@@ -28,7 +29,7 @@ export const sendmessage = async (req, res) => {
          JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id
          WHERE cp1.user_id = $1 AND cp2.user_id = $2
          LIMIT 1`,
-        [currentUserId, id]
+        [currentUserId, receiver_id]
       );
 
       if (exist.rows.length > 0) {

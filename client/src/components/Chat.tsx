@@ -99,7 +99,6 @@ const Chat: React.FC<ChatProps> = () => {
       </div>
     );
   }
-  console.log(selectedUser);
   return (
     <div className="w-full h-screen flex flex-col bg-[#f8f5f1]">
       {/* Header */}

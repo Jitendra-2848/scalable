@@ -11,6 +11,7 @@ import { api } from "../utils/axios";
 import { useUser } from "../hooks/useUser";
 import { useSocket } from "../hooks/useSocket";
 import { hasRefreshToken } from "../hooks/TokenManagement";
+import { v4 as uuidv4 } from 'uuid';
 
 export const ChatContext = createContext<ChatContextType | null>(null);
 
@@ -95,13 +96,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
     (msg: string) => {
       if (!selectedUser || !msg.trim() || !userdetail) return;
 
-      const tempId =
-        selectedUser.id +
-        "_" +
-        Date.now() +
-        "_" +
-        Math.random().toString(36).substr(2, 9);
-
+      const tempId = uuidv4();
       const newMsg: Message = {
         id: tempId,
         message: msg,
