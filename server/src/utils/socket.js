@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
-import { createRedis, publish, subscribe, getRedisClient } from "./redisClient.js";
+import { createRedis, subscribe, getRedisClient } from "./redisClient.js";
 import jwt from "jsonwebtoken";
 const app = express();
 const server = http.createServer(app);
@@ -44,7 +44,7 @@ const initSocket = async () => {
   redis = await getRedisClient();
 
   if (!redis) {
-    // throw new Error("Redis client failed to initialize!");
+    throw new Error("Redis client failed to initialize!");
   }
 
   console.log("✅ Redis connected");
@@ -53,6 +53,7 @@ const initSocket = async () => {
 
   await subscribe((data) => {
     const receiverId = Number(data.receiver_id);
+    console.log(receiverId);
     const socketIds = userSocketMap.get(receiverId);
     if (socketIds) {
       socketIds.forEach((sid) => {
@@ -97,10 +98,7 @@ const initSocket = async () => {
     socket.on("message", async (message) => {
       if (socket.userId == null) return;
 
-      await publish({
-        ...message,
-        sender_id: socket.userId,
-      });
+      
 
       socket.emit("message_sent", {
         temp_id: message.id,

@@ -8,20 +8,24 @@ import {
   updateMessage,
   deleteMessage
 } from "../models/userModel.js";
+import { publish } from "../utils/redisClient.js";
 
 // Create conversation if needed, then send message
 export const sendmessage = async (req, res) => {
   try {
-    console.log(req.body);
-    const { conversation_id, id, message } = req.body;
+    console.log("Incoming message request:", req.body);
+    const { conversation_id, message, receiver_id } = req.body;
     const currentUserId = req.user.id;
 
     if (!message || !message.trim()) {
       return res.status(400).json({ error: "Message content is required" });
     }
 
-    let convId = conversation_id;
+    if (!receiver_id) {
+      return res.status(400).json({ error: "receiver_id is required" });
+    }
 
+    let convId = conversation_id;
     if (!convId) {
       const exist = await pool.query(
         `SELECT DISTINCT cp1.conversation_id 
@@ -40,22 +44,24 @@ export const sendmessage = async (req, res) => {
           ['private']
         );
         convId = newConv.rows[0].id;
-
+        
         await pool.query(
           "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1,$2),($1,$3)",
-          [convId, currentUserId, id]
+          [convId, currentUserId, receiver_id]
         );
+        console.log("Created new conversation:", convId);
       }
     }
-
-    
-
+    await publish(req.body);
     message_saving(req.body);
+    return res.status(200).json({ 
+      message: "Message sent", 
+      conversation_id: convId 
+    });
 
-    return res.status(200).json({ message: "Message sent", conversation_id: convId });
   } catch (error) {
     console.error("Error sending message:", error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -98,7 +104,7 @@ export const getmessage = async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at",
+      "SELECT * FROM messages WHERE conversation_id = $1 ORDER BY created_at desc limit 50",
       [convId]
     );
 
