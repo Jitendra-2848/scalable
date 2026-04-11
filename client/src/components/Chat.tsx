@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Loader2Icon,
   Paperclip,
+  Download,
 } from "lucide-react";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useChat } from "../hooks/useChat";
@@ -39,9 +40,12 @@ const Chat: React.FC = () => {
 
   // Focus input and scroll to bottom when chat opens
   useEffect(() => {
-    inputRef.current?.focus();
-    setTimeout(() => bottomRef.current?.scrollIntoView(), 100);
-  }, [selectedUser?.id]);
+  inputRef.current?.focus();
+
+  requestAnimationFrame(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "auto" });
+  });
+}, [selectedUser?.id]);
 
   // Auto-fill if messages dont create scrollbar
   useEffect(() => {
@@ -72,8 +76,13 @@ const Chat: React.FC = () => {
 
   // Read receipts
   useEffect(() => {
-    readSetRef.current.clear();
-    if (observerRef.current) observerRef.current.disconnect();
+    // readSetRef.current.clear();
+    // if (observerRef.current) observerRef.current.disconnect();
+    inputRef.current?.focus();
+    setTimeout(
+      () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100,
+    );
   }, [selectedUser?.id]);
 
   useEffect(() => {
@@ -146,10 +155,9 @@ const Chat: React.FC = () => {
     formData.append("file", preview.file);
     formData.append("receiver_id", String(selectedUser?.id));
     formData.append("conversation_id", String(selectedUser?.conversation_id));
-    formData.append("message", ""); // Empty message for file-only
-
-    // Convert file to base64 for direct Cloudinary upload
+    formData.append("message", "");
     const reader = new FileReader();
+
     reader.onload = async () => {
       const base64 = reader.result as string;
 

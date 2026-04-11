@@ -10,12 +10,12 @@ config({path : "./src/.env"})
 //     password:process.env.PASSWORD
 // }) 
 const pool = new Pool({
-    user: process.env.DB_USER || process.env.USER,
-    database: process.env.DB_NAME || process.env.DATABASE,
-    port: process.env.DB_PORT || process.env.DBPORT,
-    host: process.env.DB_HOST || process.env.HOST,
-    password: process.env.DB_PASSWORD || process.env.PASSWORD
-    
+    // user: process.env.DB_USER || process.env.USER,
+    // database: process.env.DB_NAME || process.env.DATABASE,
+    // port: process.env.DB_PORT || process.env.DBPORT,
+    // host: process.env.DB_HOST || process.env.HOST,
+    // password: process.env.DB_PASSWORD || process.env.PASSWORD
+    connectionString: process.env.DATABASE_URL
 });
 
 pool.on("connect",()=>{

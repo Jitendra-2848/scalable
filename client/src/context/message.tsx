@@ -255,6 +255,7 @@ const sendMessage = useCallback(
   useEffect(() => {
     if (!socket) return;
     const handleMessage = (msg: Message) => {
+      console.log(msg);
       setMessagesMap((prev) => ({
         ...prev,
         [msg.sender_id]: [...(prev[msg.sender_id] || []), msg],

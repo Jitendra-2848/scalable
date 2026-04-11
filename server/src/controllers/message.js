@@ -74,6 +74,7 @@ export const sendmessage = async (req, res) => {
       message: message?.trim() || '',
       receiver_id,
       sender_id: currentUserId,
+      created_at:message?.created_at || new Date(),
       file_url: fileUrl,
       file_type: file_type || null,
       file_name: file_name || null,
@@ -235,7 +236,7 @@ export const deleteUser = async (req, res) => {
 export const oldMessages = async (req, res) => {
   try {
     const { conversation_id, cursor } = req.body;
-    const limit = 5;
+    const limit = 50;
     console.log(cursor);
     if (!conversation_id || !cursor) {
       return res.status(400).json({ message: "Missing conversation_id or cursor" });

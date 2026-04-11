@@ -1,7 +1,7 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
-import { createRedis, subscribe, getRedisClient } from "./redisClient.js";
+import { createRedis, subscribe, getRedisClient, publish } from "./redisClient.js";
 import jwt from "jsonwebtoken";
 const app = express();
 const server = http.createServer(app);
@@ -96,13 +96,14 @@ const initSocket = async () => {
     });
 
 socket.on("message", async (message) => {
+  console.log(message);
   if (socket.userId == null) return;
-
   // Emit with file metadata if present
   socket.emit("message_sent", {
     temp_id: message.id,
     receiver_id: message.receiver_id,
     conversation_id: message.conversation_id,
+    created_at: message.created_at,
     file_url: message.file_url || null,
     file_type: message.file_type || null,
     file_name: message.file_name || null,
