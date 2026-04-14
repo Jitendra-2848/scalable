@@ -23,10 +23,10 @@ app.use("/auth", Auth_API);
 app.use("/user", User_API);
 
 app.get("/", async (req, res) => {
-  const result = await pool.query("SELECT current_database()");
+  const result = await pool.query("SELECT * from messages");
   return res
     .status(200)
-    .json(`The database name is : ${result.rows[0].current_database}`);
+    .json(`The database name is : ${result.rows.length}`);
 });
 
 const PORT = process.env.PORT || 8000;

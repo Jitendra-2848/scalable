@@ -23,8 +23,11 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const { userdetail } = useUser();
   const { socket, sendMsg } = useSocket();
-  const { selectedUser, updateSidebarWithNewMessage, updateSelectedUserConvId } =
-    useChat();
+  const {
+    selectedUser,
+    updateSidebarWithNewMessage,
+    updateSelectedUserConvId,
+  } = useChat();
 
   const fetchedChats = useRef<Set<number>>(new Set());
 
@@ -59,7 +62,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({
           const merged = Array.from(msgMap.values()).sort(
             (a, b) =>
               new Date(a.created_at).getTime() -
-              new Date(b.created_at).getTime()
+              new Date(b.created_at).getTime(),
           );
 
           return { ...prev, [selectedUser.id]: merged };
@@ -77,28 +80,23 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({
     fetchInitialMessages();
   }, [selectedUser?.id]);
 
-
 const fetchOlderMessages = useCallback(async () => {
   if (!selectedUser) return;
 
   const currentMessages = messagesMapRef.current[selectedUser.id] || [];
-  
-  let cursor = null;
-  console.log("messages:", messages.length);
-console.log("hasMore:", hasMore);
-console.log("hasMoreChats:", hasMoreChats);
-console.log("fetched:", fetchedChats.current.has(selectedUser?.id));
-  if (currentMessages.length > 0) {
-    const oldestMessage = currentMessages[0]; // ensure sorted correctly
-    if (!oldestMessage?.created_at) return;
-    cursor = oldestMessage.created_at;
-  }
+  if (currentMessages.length === 0) return;
+
+  const oldestMessage = currentMessages[0];
+  if (!oldestMessage?.created_at) return;
+
+  const cursor = oldestMessage.created_at;
+  const cursor_id = oldestMessage.id;
 
   try {
     const result = await api.post("/message/oldMessages", {
       conversation_id: selectedUser.conversation_id,
-      user_id: selectedUser.id,
       cursor,
+      cursor_id,
     });
 
     const olderMessages: Message[] = result.data.data || [];
@@ -109,139 +107,175 @@ console.log("fetched:", fetchedChats.current.has(selectedUser?.id));
     }));
 
     if (olderMessages.length > 0) {
-      setMessagesMap((prev) => ({
-        ...prev,
-        [selectedUser.id]: [
-          ...olderMessages,
-          ...(prev[selectedUser.id] || []),
-        ],
-      }));
-    }
+      setMessagesMap((prev) => {
+        const existingMessages = prev[selectedUser.id] || [];
+        
+        const seen: Record<string, boolean> = {};// <Map<object> | {}> = {};
+        const merged = [];
+        let i = 0, j = 0;
+        const oldLen = olderMessages.length;
+        const existLen = existingMessages.length;
+        
+        while (i < oldLen || j < existLen) {
+          let msg;
+          
+          if (i >= oldLen) {
+            msg = existingMessages[j++];
+          } else if (j >= existLen) {
+            msg = olderMessages[i++];
+          } else {
+            const timeA = new Date(olderMessages[i].created_at).getTime();
+            const timeB = new Date(existingMessages[j].created_at).getTime();
+            
+            if (timeA < timeB) {
+              msg = olderMessages[i++];
+            } else if (timeA > timeB) {
+              msg = existingMessages[j++];
+            } else {
+              msg = String(olderMessages[i].id) < String(existingMessages[j].id)
+                ? olderMessages[i++]
+                : existingMessages[j++];
+            }
+          }
+          const msgId = String(msg.id);
+          if (!seen[msgId]) {
+            seen[msgId] = true;
+            merged.push(msg);
+          }
+        }
+        
+        return {
+          ...prev,
+          [selectedUser.id]: merged,
+        };
+      });
+    }  
   } catch (error) {
     console.error("Failed to fetch older messages", error);
   }
-}, [selectedUser, userdetail]);
-const sendMessage = useCallback(
-  async (msg: string | FormData) => {
-    if (!selectedUser || !userdetail) return;
-    
-    const isFormData = msg instanceof FormData;
-    if (!isFormData && (!msg || !msg.trim())) return;
+}, [selectedUser]);
+  const sendMessage = useCallback(
+    async (msg: string | FormData) => {
+      if (!selectedUser || !userdetail) return;
 
-    const tempId = uuidv4();
-    
-    try {
-      if (isFormData) {
-        const file = msg.get('file') as File;
-        if (!file) return;
+      const isFormData = msg instanceof FormData;
+      if (!isFormData && (!msg || !msg.trim())) return;
 
-        // Convert file to base64
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+      const tempId = uuidv4();
 
-        // Create optimistic UI message
-        const fileMsg: Message = {
-          id: tempId,
-          message: '',
-          created_at: new Date(),
-          sender_id: userdetail.id,
-          receiver_id: selectedUser.id,
-          status: "pending",
-          conversation_id: selectedUser.conversation_id,
-          file_url: base64, // Show preview immediately
-          file_type: file.type,
-          file_name: file.name,
-        };
+      try {
+        if (isFormData) {
+          const file = msg.get("file") as File;
+          if (!file) return;
 
-        // Add to UI immediately
-        setMessagesMap((prev) => ({
-          ...prev,
-          [selectedUser.id]: [...(prev[selectedUser.id] || []), fileMsg],
-        }));
+          // Convert file to base64
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
 
-        updateSidebarWithNewMessage(
-          selectedUser.id,
-          `📎 ${file.name}`,
-          new Date().toISOString()
-        );
+          // Create optimistic UI message
+          const fileMsg: Message = {
+            id: tempId,
+            message: "",
+            created_at: new Date(),
+            sender_id: userdetail.id,
+            receiver_id: selectedUser.id,
+            status: "pending",
+            conversation_id: selectedUser.conversation_id,
+            file_url: base64, // Show preview immediately
+            file_type: file.type,
+            file_name: file.name,
+          };
 
-        // Send to backend
-        const response = await api.post("/message/send", {
-          id: tempId,
-          receiver_id: selectedUser.id,
-          conversation_id: selectedUser.conversation_id,
-          message: '',
-          file: base64,
-          file_type: file.type,
-          file_name: file.name,
-        });
+          // Add to UI immediately
+          setMessagesMap((prev) => ({
+            ...prev,
+            [selectedUser.id]: [...(prev[selectedUser.id] || []), fileMsg],
+          }));
 
-        // Update with actual Cloudinary URL
+          updateSidebarWithNewMessage(
+            selectedUser.id,
+            `📎 ${file.name}`,
+            new Date().toISOString(),
+          );
+
+          // Send to backend
+          const response = await api.post("/message/send", {
+            id: tempId,
+            receiver_id: selectedUser.id,
+            conversation_id: selectedUser.conversation_id,
+            message: "",
+            file: base64,
+            file_type: file.type,
+            file_name: file.name,
+          });
+
+          // Update with actual Cloudinary URL
+          setMessagesMap((prev) => ({
+            ...prev,
+            [selectedUser.id]: prev[selectedUser.id].map((m) =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    file_url: response.data.file_url,
+                    status: "sent",
+                    conversation_id: response.data.conversation_id,
+                  }
+                : m,
+            ),
+          }));
+
+          if (response.data.conversation_id) {
+            updateSelectedUserConvId(response.data.conversation_id);
+          }
+        } else {
+          // Regular text message
+          const newMsg: Message = {
+            id: tempId,
+            message: msg,
+            created_at: new Date().toISOString(),
+            sender_id: userdetail.id,
+            receiver_id: selectedUser.id,
+            status: "pending",
+            conversation_id: selectedUser.conversation_id,
+          };
+
+          setMessagesMap((prev) => ({
+            ...prev,
+            [selectedUser.id]: [...(prev[selectedUser.id] || []), newMsg],
+          }));
+
+          updateSidebarWithNewMessage(
+            selectedUser.id,
+            msg,
+            new Date().toISOString(),
+          );
+
+          sendMsg(newMsg);
+        }
+      } catch (error) {
+        console.error("Failed to send message:", error);
+
+        // Mark message as failed
         setMessagesMap((prev) => ({
           ...prev,
           [selectedUser.id]: prev[selectedUser.id].map((m) =>
-            m.id === tempId
-              ? {
-                  ...m,
-                  file_url: response.data.file_url,
-                  status: "sent",
-                  conversation_id: response.data.conversation_id,
-                }
-              : m
+            m.id === tempId ? { ...m, status: "failed" } : m,
           ),
         }));
-
-        if (response.data.conversation_id) {
-          updateSelectedUserConvId(response.data.conversation_id);
-        }
-
-      } else {
-        // Regular text message
-        const newMsg: Message = {
-          id: tempId,
-          message: msg,
-          created_at: new Date(),
-          sender_id: userdetail.id,
-          receiver_id: selectedUser.id,
-          status: "pending",
-          conversation_id: selectedUser.conversation_id,
-        };
-
-        setMessagesMap((prev) => ({
-          ...prev,
-          [selectedUser.id]: [...(prev[selectedUser.id] || []), newMsg],
-        }));
-
-        updateSidebarWithNewMessage(
-          selectedUser.id,
-          msg,
-          new Date().toISOString()
-        );
-
-        sendMsg(newMsg);
       }
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      
-      // Mark message as failed
-      setMessagesMap((prev) => ({
-        ...prev,
-        [selectedUser.id]: prev[selectedUser.id].map((m) =>
-          m.id === tempId ? { ...m, status: "failed" } : m
-        ),
-      }));
-    }
-  },
-  [selectedUser, sendMsg, userdetail, updateSidebarWithNewMessage, updateSelectedUserConvId]
-);
-
-
-
-
+    },
+    [
+      selectedUser,
+      sendMsg,
+      userdetail,
+      updateSidebarWithNewMessage,
+      updateSelectedUserConvId,
+    ],
+  );
 
   const markAsRead = useCallback(
     (messageId: string, senderId: number) => {
@@ -250,7 +284,7 @@ const sendMessage = useCallback(
         sender_id: senderId,
       });
     },
-    [socket]
+    [socket],
   );
   useEffect(() => {
     if (!socket) return;
@@ -264,7 +298,7 @@ const sendMessage = useCallback(
       updateSidebarWithNewMessage(
         msg.sender_id,
         msg.message,
-        String(msg.created_at)
+        String(msg.created_at),
       );
       socket.emit("message_delivered", {
         message_id: msg.id,
@@ -275,7 +309,7 @@ const sendMessage = useCallback(
       userId: number,
       msgId: string,
       status: string,
-      convId?: number
+      convId?: number,
     ) => {
       setMessagesMap((prev) => {
         const userMessages = prev[userId];
@@ -289,7 +323,7 @@ const sendMessage = useCallback(
                   status,
                   ...(convId ? { conversation_id: convId } : {}),
                 }
-              : m
+              : m,
           ),
         };
       });
@@ -299,7 +333,12 @@ const sendMessage = useCallback(
       receiver_id: number;
       conversation_id: number;
     }) => {
-      updateMsgStatus(data.receiver_id, data.temp_id, "sent", data.conversation_id);
+      updateMsgStatus(
+        data.receiver_id,
+        data.temp_id,
+        "sent",
+        data.conversation_id,
+      );
       if (data.conversation_id) {
         updateSelectedUserConvId(data.conversation_id);
       }
@@ -346,7 +385,7 @@ const sendMessage = useCallback(
       hasMore,
       markAsRead,
     }),
-    [messages, sendMessage, fetchOlderMessages, hasMore, markAsRead]
+    [messages, sendMessage, fetchOlderMessages, hasMore, markAsRead],
   );
 
   return (

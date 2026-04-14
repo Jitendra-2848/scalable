@@ -10,11 +10,13 @@ import {
   Loader2Icon,
   Paperclip,
   Download,
+  X,
 } from "lucide-react";
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useChat } from "../hooks/useChat";
 import { useNavigate } from "react-router-dom";
 import { useMessage } from "../hooks/useMessage";
+import { v4 as uuidv4 } from "uuid";
 import { api } from "../utils/axios";
 
 const Chat: React.FC = () => {
@@ -27,65 +29,189 @@ const Chat: React.FC = () => {
   const navigate = useNavigate();
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sendingFile, setSendingFile] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const chatRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const readSetRef = useRef<Set<string>>(new Set());
+  const isInitialLoad = useRef(true);
+  const previousScrollHeight = useRef(0);
+  const shouldScrollToBottom = useRef(true);
   const [preview, setPreview] = useState<{
     file: File;
     url: string;
     type: "image" | "video" | "file";
   } | null>(null);
 
+  let x = 0;
+
+  // Scroll to bottom helper
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = chatRef.current;
+    if (!el) return;
+
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior });
+      el.scrollTop = el.scrollHeight;
+    });
+  }, []);
+  console.log(messages);
+  console.log(hasMore);
+  // Check if user is at bottom of chat
+  const isUserAtBottom = useCallback(() => {
+    const el = chatRef.current;
+    if (!el) return true;
+    const threshold = 150;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
   // Focus input and scroll to bottom when chat opens
   useEffect(() => {
-  inputRef.current?.focus();
+    if (!selectedUser) return;
 
-  requestAnimationFrame(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "auto" });
-  });
-}, [selectedUser?.id]);
+    // Reset states
+    readSetRef.current.clear();
+    isInitialLoad.current = true;
+    shouldScrollToBottom.current = true;
+    setMsg("");
+    setPreview(null);
 
-  // Auto-fill if messages dont create scrollbar
+    // Focus input
+    inputRef.current?.focus();
+
+    // Scroll to bottom after a short delay to ensure messages are rendered
+  }, [selectedUser?.id, scrollToBottom]);
+
+  // Auto-scroll on new messages (only if user is near bottom)
   useEffect(() => {
-    const el = chatRef.current;
-    if (!el || !hasMore || loading || messages.length === 0) return;
-    if (el.scrollHeight <= el.clientHeight) {
-      loadMore();
+    if (messages.length === 0) return;
+
+    // if (isInitialLoad.current) {
+    //   scrollToBottom("auto");
+    //   return;
+    // }
+
+    const lastMessage = messages[messages.length - 1];
+    const isMyMessage = lastMessage?.sender_id !== selectedUser?.id;
+
+    // Always scroll if it's my message, or if user is near bottom
+    if (isMyMessage || isUserAtBottom()) {
+      scrollToBottom("smooth");
     }
-  }, [messages.length, hasMore]);
+  }, [scrollToBottom, isUserAtBottom, selectedUser?.id]);
 
-  async function loadMore() {
+  // Auto-fill if messages don't create scrollbar
+  useEffect(() => {
+    if (!shouldScrollToBottom.current) return;
+
+    if (messages.length === 0) return;
+
+    const lastMessage = messages[messages.length - 1];
+    const isMyMessage = lastMessage?.sender_id !== selectedUser?.id;
+
+    if (isMyMessage || isUserAtBottom()) {
+      scrollToBottom("smooth");
+    }
+  }, [messages.length, selectedUser?.id]);
+
+  const sendFileMessage = useCallback(async () => {
+    if (!preview || !selectedUser || sendingFile) return;
+
+    setSendingFile(true);
+    shouldScrollToBottom.current = true;
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const base64 = reader.result as string;
+
+          const response = await api.post(`/message/${selectedUser.id}`, {
+            id: uuidv4(),
+            file: base64,
+            file_type: preview.file.type, 
+            file_name: preview.file.name,
+            receiver_id: selectedUser.id,
+            conversation_id: selectedUser.conversation_id,
+            message: "",
+          });
+
+          console.log("File sent:", response.data);
+          setPreview(null);
+          setSendingFile(false);
+          setTimeout(() => scrollToBottom("smooth"), 100);
+        } catch (error) {
+          console.error("Error sending file:", error);
+          setSendingFile(false);
+          alert("Failed to send file. Please try again.");
+        }
+      };
+
+      reader.onerror = () => {
+        console.error("Error reading file");
+        setSendingFile(false);
+        alert("Error reading file");
+      };
+
+      reader.readAsDataURL(preview.file);
+    } catch (error) {
+      console.error("Error in sendFileMessage:", error);
+      setSendingFile(false);
+    }
+  }, [preview, selectedUser, sendingFile, scrollToBottom]);
+
+  // Load more messages
+  const loadMore = useCallback(async () => {
     if (loading || !hasMore) return;
-    setLoading(true);
-    const el = chatRef.current;
-    const oldHeight = el ? el.scrollHeight : 0;
-    await fetchOlderMessages();
-    requestAnimationFrame(() => {
-      if (el) el.scrollTop = el.scrollHeight - oldHeight;
-      setLoading(false);
-    });
-  }
 
-  function handleScroll() {
+    const el = chatRef.current;
+    if (!el) return;
+
+    setLoading(true);
+
+    // ❗ STOP auto scroll
+    shouldScrollToBottom.current = false;
+
+    // ✅ Save current height
+    const prevScrollHeight = el.scrollHeight;
+
+    try {
+      await fetchOlderMessages();
+
+      requestAnimationFrame(() => {
+        if (!el) return;
+
+        const newScrollHeight = el.scrollHeight;
+
+        // ✅ THIS LINE FIXES YOUR ISSUE
+        el.scrollTop = newScrollHeight - prevScrollHeight;
+      });
+    } catch (error) {
+      console.error("Error loading messages:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, hasMore, fetchOlderMessages]);
+  // Handle scroll for infinite loading
+  const handleScroll = useCallback(() => {
     const el = chatRef.current;
     if (!el || loading || !hasMore) return;
-    if (el.scrollTop < 80) loadMore();
-  }
 
-  // Read receipts
-  useEffect(() => {
-    // readSetRef.current.clear();
-    // if (observerRef.current) observerRef.current.disconnect();
-    inputRef.current?.focus();
-    setTimeout(
-      () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
-      100,
-    );
-  }, [selectedUser?.id]);
+    if (el.scrollTop < 100) {
+      loadMore();
+    }
+  }, [loading, hasMore, loadMore]);
 
+  // Setup read receipt observer
   useEffect(() => {
+    if (!selectedUser) return;
+
+    // Cleanup previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -93,7 +219,13 @@ const Chat: React.FC = () => {
             const el = entry.target as HTMLElement;
             const messageId = el.dataset.messageId;
             const senderId = el.dataset.senderId;
-            if (messageId && senderId && !readSetRef.current.has(messageId)) {
+
+            if (
+              messageId &&
+              senderId &&
+              !readSetRef.current.has(messageId) &&
+              parseInt(senderId) === selectedUser.id
+            ) {
               readSetRef.current.add(messageId);
               markAsRead(messageId, parseInt(senderId));
               observerRef.current?.unobserve(el);
@@ -103,34 +235,42 @@ const Chat: React.FC = () => {
       },
       { root: chatRef.current, threshold: 0.6 },
     );
-    return () => observerRef.current?.disconnect();
+
+    return () => {
+      observerRef.current?.disconnect();
+    };
   }, [markAsRead, selectedUser?.id]);
 
+  // Ref callback for incoming messages
   const incomingRef = useCallback((node: HTMLDivElement | null) => {
     if (!node || !observerRef.current) return;
+
     const messageId = node.dataset.messageId;
     if (messageId && !readSetRef.current.has(messageId)) {
       observerRef.current.observe(node);
     }
   }, []);
 
-  function handleMessageSend() {
-    if (!msg.trim()) return;
-    sendMessage(msg);
+  // Send text message
+  const handleMessageSend = useCallback(() => {
+    const trimmedMsg = msg.trim();
+    if (!trimmedMsg || !selectedUser) return;
+
+    shouldScrollToBottom.current = true;
+
+    sendMessage(trimmedMsg);
     setMsg("");
-    inputRef.current?.focus();
-    setTimeout(
-      () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
-      100,
-    );
-  }
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  }, [msg, sendMessage, selectedUser]);
+  // Handle file selection
+  const handleFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
+    // Reset input
+    e.target.value = "";
 
-    reader.onload = async () => {
+    const reader = new FileReader();
+    reader.onload = () => {
       const base64String = reader.result as string;
 
       setPreview({
@@ -144,36 +284,49 @@ const Chat: React.FC = () => {
       });
     };
     reader.readAsDataURL(file);
-    sendFileMessage();
-  }
+  }, []);
 
-  // When sending from preview modal:
-  async function sendFileMessage() {
-    if (!preview) return;
+  // Send file message
 
-    const formData = new FormData();
-    formData.append("file", preview.file);
-    formData.append("receiver_id", String(selectedUser?.id));
-    formData.append("conversation_id", String(selectedUser?.conversation_id));
-    formData.append("message", "");
-    const reader = new FileReader();
+  // Handle Enter key
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleMessageSend();
+      }
+    },
+    [handleMessageSend],
+  );
 
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-
-      const response = await api.post(`/message/${selectedUser?.id}`, {
-        id: uuidv4(),
-        file: base64,
-        receiver_id: selectedUser?.id,
-        conversation_id: selectedUser?.conversation_id,
-        message: "",
+  // Format time
+  const formatTime = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
       });
-      console.log(response.data);
-      // Handle response...
-      setPreview(null);
-    };
-    reader.readAsDataURL(preview.file);
-  }
+    } catch {
+      return "";
+    }
+  };
+
+  // Format last seen
+  const getLastSeenText = () => {
+    if (onlineUser.includes(selectedUser?.id || 0)) {
+      return typingUsers[selectedUser?.id || 0] ? "Typing..." : "Online";
+    }
+    if (selectedUser?.last_message_time) {
+      const time = selectedUser.last_message_time
+        .split("T")[1]
+        ?.split(":")
+        .splice(0, 2)
+        .join(":");
+      return time ? `Last seen at ${time}` : "Offline";
+    }
+    return "Offline";
+  };
 
   if (!selectedUser) {
     return (
@@ -190,7 +343,6 @@ const Chat: React.FC = () => {
       </div>
     );
   }
-
   return (
     <div className="w-full h-screen flex flex-col bg-[#f8f5f1]">
       {/* Header */}
@@ -201,10 +353,11 @@ const Chat: React.FC = () => {
               navigate("/log");
               selectUser(null);
             }}
+            className="flex-shrink-0"
           >
             <ArrowLeft size={18} className="text-[#5e5148]" />
           </button>
-          {selectedUser?.avatar ? (
+          {selectedUser.avatar ? (
             <img
               src={selectedUser.avatar}
               className="h-10 w-10 sm:h-12 sm:w-12 rounded-full object-cover border border-[#d6c8b8] flex-none"
@@ -220,13 +373,7 @@ const Chat: React.FC = () => {
               {selectedUser.name}
             </h1>
             <h1 className="font-normal text-xs sm:text-sm text-[#7b6f66] truncate">
-              {onlineUser.includes(selectedUser.id)
-                ? typingUsers[selectedUser.id]
-                  ? "Typing..."
-                  : "Online"
-                : selectedUser.last_message_time
-                  ? `last seen at ${selectedUser.last_message_time?.split("T")[1]?.split(":").splice(0, 2).join(":")}`
-                  : "Chat with me to know my seen 😊"}
+              {getLastSeenText()}
             </h1>
           </div>
         </div>
@@ -242,129 +389,177 @@ const Chat: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Messages Container */}
       <div
         ref={chatRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-auto px-3 sm:px-4 py-4 bg-[#f8f5f1]"
+        className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 bg-[#f8f5f1]"
       >
+        more
         {loading && (
           <div className="flex justify-center py-3">
             <Loader2Icon className="animate-spin text-[#b08968]" size={20} />
           </div>
         )}
-
         {!hasMore && messages.length > 0 && (
-          <div className="text-center text-xs text-[#7b6f66] py-2">
-            Beginning of conversation
+          <div className="text-center text-xs text-[#7b6f66] py-2 mb-2">
+            🔒 Messages are end-to-end encrypted
           </div>
         )}
-
-        <div className="w-full space-y-3 flex flex-col">
+        {messages.length === 0 && !loading && (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <div className="w-16 h-16 rounded-full bg-[#e7ded4] flex items-center justify-center mb-3">
+              <span className="text-2xl">👋</span>
+            </div>
+            <p className="text-sm text-[#7b6f66]">
+              No messages yet. Start the conversation!
+            </p>
+          </div>
+        )}
+        <div className="w-full space-y-2 flex flex-col">
           {messages.map((m, idx) => {
             const isMine = m.sender_id !== selectedUser.id;
-            const isIncoming = m.sender_id === selectedUser.id;
+            const showTimestamp =
+              idx === 0 ||
+              new Date(m.created_at).toDateString() !==
+                new Date(messages[idx - 1]?.created_at).toDateString();
+
             return (
-              <div
-                ref={isMine ? undefined : incomingRef}
-                data-message-id={m.id}
-                data-sender-id={m.sender_id}
-                key={m.id + "-" + idx}
-                className={`relative rounded-lg max-w-[80%] sm:max-w-[65%] shadow-sm ${
-                  isMine
-                    ? "self-end bg-[#d9fdd3] text-[#2f2a26]"
-                    : "self-start bg-white text-[#2f2a26] border border-[#e5ddd3]"
-                }`}
-              >
-                {m.file_url ? (
-                  <div className="p-1">
-                    {m.file_type?.startsWith("image/") ||
-                    m.file_type?.startsWith("video/") ? (
-                      <div className="relative">
-                        {m.file_type.startsWith("image/") ? (
+              <React.Fragment key={m?.id}>
+                {showTimestamp && (
+                  <div className="flex justify-center my-2">
+                    <span className="text-xs text-[#7b6f66] bg-[#e7ded4] px-3 py-1 rounded-full">
+                      {new Date(m.created_at).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                )}
+
+                <div
+                  ref={isMine ? undefined : incomingRef}
+                  data-message-id={m.id}
+                  data-sender-id={m.sender_id}
+                  className={`relative rounded-lg max-w-[80%] sm:max-w-[65%] shadow-sm ${
+                    isMine
+                      ? "self-end bg-[#d9fdd3] text-[#2f2a26]"
+                      : "self-start bg-white text-[#2f2a26] border border-[#e5ddd3]"
+                  }`}
+                >
+                  {/* File Preview */}
+                  {m.file_url && (
+                    <div className="p-1">
+                      {m.file_type?.startsWith("image/") ? (
+                        <div className="relative">
                           <img
                             src={m.file_url}
                             alt="attachment"
                             className="w-full h-auto max-h-[240px] sm:max-h-[320px] object-cover rounded-md"
+                            loading="lazy"
                           />
-                        ) : (
+                          <span className="text-[10px] flex items-center gap-1 font-medium absolute bottom-1.5 right-1.5 bg-black/50 text-white px-1.5 py-0.5 rounded-full">
+                            {formatTime(m.created_at)}
+                            {isMine && (
+                              <>
+                                {m.status === "pending" && <Clock3 size={12} />}
+                                {m.status === "sent" && <Check size={12} />}
+                                {m.status === "delivered" && (
+                                  <CheckCheck size={12} />
+                                )}
+                                {m.status === "read" && (
+                                  <CheckCheck
+                                    size={12}
+                                    className="text-[#53bdeb]"
+                                  />
+                                )}
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      ) : m.file_type?.startsWith("video/") ? (
+                        <div className="relative">
                           <video
                             src={m.file_url}
                             controls
                             className="w-full h-auto max-h-[240px] sm:max-h-[320px] rounded-md"
                           />
-                        )}
-                        <span className="text-[10px] flex items-center gap-1 font-medium absolute bottom-1.5 right-1.5 bg-black/40 text-white px-1.5 py-0.5 rounded-full">
-                          {new Date(m.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: false,
-                          })}
-                          {isMine && (
-                            <span className="inline-block">
-                              {m.status === "pending" && <Clock3 size={12} />}
-                              {m.status === "sent" && <Check size={12} />}
-                              {m.status === "delivered" && (
-                                <CheckCheck size={12} />
-                              )}
-                              {m.status === "read" && (
-                                <CheckCheck
-                                  size={12}
-                                  className="text-[#53bdeb]"
-                                />
-                              )}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    ) : (
-                      <a
-                        href={m.file_url}
-                        download
-                        className="flex items-center gap-2 p-2 bg-[#f0f0f0] rounded-md hover:bg-[#e8e8e8] transition-colors"
-                      >
-                        <Paperclip
-                          size={16}
-                          className="text-[#5e5148] flex-shrink-0"
-                        />
-                        <span className="text-xs sm:text-sm text-gray-700 truncate min-w-0">
-                          {m.file_name || "Download File"}
-                        </span>
-                        <Download
-                          size={16}
-                          className="ml-auto text-[#5e5148] flex-shrink-0"
-                        />
-                      </a>
-                    )}
-                  </div>
-                ) : null}
+                          <span className="text-[10px] flex items-center gap-1 font-medium absolute bottom-1.5 right-1.5 bg-black/50 text-white px-1.5 py-0.5 rounded-full">
+                            {formatTime(m.created_at)}
+                            {isMine && (
+                              <>
+                                {m.status === "pending" && <Clock3 size={12} />}
+                                {m.status === "sent" && <Check size={12} />}
+                                {m.status === "delivered" && (
+                                  <CheckCheck size={12} />
+                                )}
+                                {m.status === "read" && (
+                                  <CheckCheck
+                                    size={12}
+                                    className="text-[#53bdeb]"
+                                  />
+                                )}
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      ) : (
+                        <a
+                          href={m.file_url}
+                          download
+                          className="flex items-center gap-2 p-2 bg-[#f0f0f0] rounded-md hover:bg-[#e8e8e8] transition-colors"
+                        >
+                          <Paperclip
+                            size={16}
+                            className="text-[#5e5148] flex-shrink-0"
+                          />
+                          <span className="text-xs sm:text-sm text-gray-700 truncate min-w-0">
+                            {m.file_name || "Download File"}
+                          </span>
+                          <Download
+                            size={16}
+                            className="ml-auto text-[#5e5148] flex-shrink-0"
+                          />
+                        </a>
+                      )}
+                    </div>
+                  )}
 
-                {m.message && (
-                  <p className="break-words px-2 pt-1 pb-1 pr-14 text-sm">
-                    {m.message}
-                  </p>
-                )}
+                  {/* Text Message */}
+                  {m.message && (
+                    <div className="px-3 pt-1.5 pb-1 pr-16">
+                      <p className="break-words text-sm whitespace-pre-wrap">
+                        {m.message}
+                      </p>
+                    </div>
+                  )}
 
-                {!m.file_type?.startsWith("image/") &&
-                  !m.file_type?.startsWith("video/") && (
-                    <span className={`text-[10px] flex items-center gap-1 font-medium absolute bottom-1.5 right-3 text-[#667781] ${isMine ? "right-1" : "right-5"}`}>
-                      {new Date(m.created_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        hour12: false,
-                      })}
+                  {/* Timestamp for non-media messages */}
+                  {(!m.file_type ||
+                    (!m.file_type.startsWith("image/") &&
+                      !m.file_type.startsWith("video/"))) && (
+                    <span
+                      className={`text-[10px] flex items-center gap-1 font-medium absolute bottom-1 text-[#667781] ${
+                        isMine ? "right-2" : "right-2"
+                      }`}
+                    >
+                      {formatTime(m.created_at)}
                       {isMine && (
-                        <span className="inline-block">
+                        <>
                           {m.status === "pending" && <Clock3 size={12} />}
                           {m.status === "sent" && <Check size={12} />}
                           {m.status === "delivered" && <CheckCheck size={12} />}
                           {m.status === "read" && (
                             <CheckCheck size={12} className="text-[#53bdeb]" />
                           )}
-                        </span>
+                        </>
                       )}
                     </span>
                   )}
-              </div>
+                </div>
+              </React.Fragment>
             );
           })}
           <div ref={bottomRef} />
@@ -373,62 +568,92 @@ const Chat: React.FC = () => {
 
       {/* File Preview Modal */}
       {preview && (
-        <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-          <div className="rounded-lg max-w-2xl w-full max-h-[90vh] overflow-auto">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h3 className="font-semibold">Preview</h3>
+        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-4 border-b flex justify-between items-center bg-[#efe7dd]">
+              <h3 className="font-semibold text-[#2f2a26]">Preview</h3>
               <button
                 onClick={() => setPreview(null)}
-                className="text-gray-500 hover:text-gray-700"
+                disabled={sendingFile}
+                className="text-[#5e5148] hover:text-[#2f2a26] disabled:opacity-50"
               >
-                ✕
+                <X size={20} />
               </button>
             </div>
-            <div className="p-4">
+            <div className="p-4 bg-[#f8f5f1]">
               {preview.type === "image" && (
                 <img
                   src={preview.url}
                   alt="Preview"
-                  className="max-w-full h-auto"
+                  className="max-w-full h-auto rounded-lg"
                 />
               )}
               {preview.type === "video" && (
                 <video
                   src={preview.url}
                   controls
-                  className="max-w-full h-auto"
+                  className="max-w-full h-auto rounded-lg"
                 />
               )}
               {preview.type === "file" && (
                 <div className="text-center py-8">
-                  <Paperclip size={48} className="mx-auto mb-2 text-gray-400" />
-                  <p className="text-sm text-gray-600">{preview.file.name}</p>
-                  <p className="text-xs text-gray-400">
+                  <Paperclip
+                    size={48}
+                    className="mx-auto mb-2 text-[#7b6f66]"
+                  />
+                  <p className="text-sm text-[#2f2a26] font-medium">
+                    {preview.file.name}
+                  </p>
+                  <p className="text-xs text-[#7b6f66] mt-1">
                     {(preview.file.size / 1024).toFixed(2)} KB
                   </p>
                 </div>
               )}
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
+            <div className="p-4 border-t bg-[#efe7dd] flex justify-end gap-2">
               <button
-                onClick={() => {
-                  const formData = new FormData();
-                  formData.append("file", preview.file);
-                  sendMessage(formData);
-                  setPreview(null);
-                }}
-                className="px-4 py-2 bg-[#0b0291] text-white rounded-md"
+                onClick={() => setPreview(null)}
+                disabled={sendingFile}
+                className="px-4 py-2 text-[#5e5148] hover:bg-[#e3d8cc] rounded-md transition-colors disabled:opacity-50"
               >
-                Done
+                Cancel
+              </button>
+              <button
+                onClick={sendFileMessage}
+                disabled={sendingFile}
+                className="px-6 py-2 bg-[#b08968] hover:bg-[#9c7455] text-white rounded-md transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sendingFile ? (
+                  <>
+                    <Loader2Icon className="animate-spin" size={16} />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send size={16} />
+                    Send
+                  </>
+                )}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Input */}
+      {/* Input Area */}
       <div className="bg-[#efe7dd] border-t border-[#ddd2c5] px-3 py-3">
         <div className="flex items-center gap-2">
+          <div className="relative flex-shrink-0">
+            <input
+              type="file"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              onChange={handleFile}
+              accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+            />
+            <button className="p-2 rounded-md bg-white hover:bg-[#f8f5f1] transition-all">
+              <Paperclip size={20} className="text-[#5e5148]" />
+            </button>
+          </div>
           <input
             ref={inputRef}
             type="text"
@@ -439,19 +664,12 @@ const Chat: React.FC = () => {
               setMsg(e.target.value);
               handleTyping();
             }}
-            onKeyDown={(e) => e.key === "Enter" && handleMessageSend()}
+            onKeyDown={handleKeyDown}
           />
-          <div className="relative cursor-grab p-2 rounded-md bg-white hover:bg-[#f8f5f1] transition-all">
-            <input
-              type="file"
-              className="absolute top-0 left-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={handleFile}
-            />
-            <Paperclip className="cursor-pointer" size={20} />
-          </div>
           <button
             onClick={handleMessageSend}
-            className="h-11 w-16 rounded-xl bg-[#b08968] hover:bg-[#9c7455] text-white flex items-center justify-center transition-all flex-none"
+            disabled={!msg.trim()}
+            className="h-11 w-11 rounded-full bg-[#b08968] hover:bg-[#9c7455] text-white flex items-center justify-center transition-all flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send size={20} />
           </button>

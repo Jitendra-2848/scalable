@@ -4,7 +4,7 @@ import pool from "../config/db.js";
 const connection = {
   host: "127.0.0.1",
   port: 6379,
-  password: "yourpassword",
+  password: "Jitendra123",
 };
 
 const message_Db = async (data) => {
@@ -15,7 +15,8 @@ const message_Db = async (data) => {
     id, 
     file_url, 
     file_type, 
-    file_name 
+    file_name,
+    created_at
   } = data;
 
   if ((!message || !message.trim()) && !file_url) {
@@ -30,8 +31,8 @@ const message_Db = async (data) => {
   console.log("start");
   const x = await pool.query(
     `INSERT INTO messages 
-     (id, sender_id, message, seen, status, deleted, conversation_id, file_url, file_type, file_name) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+     (id, sender_id, message, seen, status, deleted, conversation_id, file_url, file_type, file_name,created_at) 
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11)`,
     [
       id,
       sender_id,
@@ -42,7 +43,8 @@ const message_Db = async (data) => {
       conversation_id,
       file_url || null,
       file_type || null,
-      file_name || null
+      file_name || null,
+      created_at
     ]
   );
   console.log(x + "hello");

@@ -3,7 +3,7 @@ import { Queue } from "bullmq";
 const connection = {
   host: "127.0.0.1",
   port: 6379,
-  password: "yourpassword",
+  password: "Jitendra123",
 };
 
 const message_Queue = new Queue("message", { connection });
