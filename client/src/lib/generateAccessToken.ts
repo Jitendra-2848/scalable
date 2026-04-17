@@ -3,7 +3,7 @@ import axios from "axios";
 export const Token = async (): Promise<string> => {
     try {
         const { data } = await axios.get(
-            "http://localhost:8000/auth/refresh_token",
+            `${import.meta.env.VITE_API_URL}/auth/refresh_token`,
             { withCredentials: true }
         );
         return data.token;

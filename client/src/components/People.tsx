@@ -55,7 +55,7 @@ const People: React.FC<PeopleProps> = ({ onAddClick }) => {
                 <div className="h-11 w-11 rounded-full bg-[#ff8686] flex items-center justify-center text-white font-semibold text-sm">
                   {user.name?.charAt(0).toUpperCase()}
                 </div>
-                {onlineUser.includes(user.id) && (
+                {onlineUser.includes(Number(user.id)) && (
                   <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 rounded-full border-2 border-white" />
                 )}
               </div>

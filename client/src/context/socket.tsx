@@ -25,7 +25,7 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({
   const [socket, setSocket] = useState<Socket | null>(null);
     const {auth} = useUser();
   useEffect(() => {
-    const s = io("http://localhost:8000",{
+    const s = io(import.meta.env.VITE_API_URL,{
       withCredentials:true,
       transports: ["websocket", "polling"]
     });

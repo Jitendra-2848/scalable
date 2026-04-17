@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: process.env.VITE_FRONTEND_URL,
     credentials: true,
   },
 });
@@ -79,23 +79,26 @@ const initSocket = async () => {
   })
   io.on("connection", (socket) => {
     socket.on("join", async (rawUserId) => {
-      const userId = Number(rawUserId);
-      if (isNaN(userId)) return;
+  const userId = Number(rawUserId);
+  if (isNaN(userId)) return;
 
-      socket.userId = userId;
-      addUserSocket(userId, socket.id);
+  socket.userId = userId;
+  addUserSocket(userId, socket.id);
 
-      await redis.sAdd("online_users", String(userId));
-      console.log(`User ${userId} joined`);
+  // ✅ FIX: add to Redis SET
+  await redis.sAdd("online_users", String(userId));
 
-      await broadcastOnlineUsers();
-    });
+  console.log(`User ${userId} joined`);
+
+  await broadcastOnlineUsers();
+});
     socket.on("get_online_users", async () => {
       const onlineUsers = await redis.sMembers("online_users");
       socket.emit("onlineUsers", onlineUsers.map(Number));
     });
 
 socket.on("message", async (message) => {
+      console.log(userSocketMap.forEach((value, key) => console.log(key, value)));
   console.log(message);
   if (socket.userId == null) return;
   // Emit with file metadata if present
@@ -150,9 +153,9 @@ socket.on("message", async (message) => {
       const fullyOffline = removeUserSocket(userId, socket.id);
 
       if (fullyOffline) {
-        await redis.sRem("online_users", String(userId));
-        console.log(`User ${userId} offline`);
-      }
+  await redis.sRem("online_users", String(userId));
+  console.log(`User ${userId} offline`);
+}
 
       await broadcastOnlineUsers();
     });
