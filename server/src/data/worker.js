@@ -1,5 +1,7 @@
 import { Worker } from "bullmq";
 import pool from "../config/db.js";
+import { publish } from "../utils/redisClient.js";
+import { addRecentMessage } from "../utils/cache.js";
 
 const connection = {
   username: process.env.REDIS_USERNAME,
@@ -29,11 +31,12 @@ const message_Db = async (data) => {
     console.error("Missing required fields:", data);
     return;
   }
-  console.log("start");
-  const x = await pool.query(
+
+  const result = await pool.query(
     `INSERT INTO messages 
-     (id, sender_id, message, seen, status, deleted, conversation_id, file_url, file_type, file_name,created_at) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11)`,
+     (id, sender_id, message, seen, status, deleted, conversation_id, file_url, file_type, file_name, created_at) 
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT (id) DO NOTHING`,
     [
       id,
       sender_id,
@@ -45,10 +48,17 @@ const message_Db = async (data) => {
       file_url || null,
       file_type || null,
       file_name || null,
-      created_at
+      created_at,
     ]
   );
-  console.log(x + "hello");
+
+  if (result.rowCount === 0) {
+    console.warn("Worker skipped duplicate message", id);
+    return;
+  }
+
+  await addRecentMessage(conversation_id, data);
+  await publish(data);
 };
 
 const worker = new Worker(

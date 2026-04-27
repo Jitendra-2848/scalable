@@ -1,5 +1,4 @@
 
-import { tryCatch } from "bullmq";
 import pool from "../config/db.js";
 import { message_saving } from "../data/queue.js";
 import {
@@ -10,57 +9,93 @@ import {
   deleteMessage
 } from "../models/userModel.js";
 import { publish } from "../utils/redisClient.js";
+import { getConversationCache, setConversationCache, addRecentMessage, getRecentMessages } from "../utils/cache.js";
 import { uploadImage } from "../lib/cloudinary.js";
+import { v4 as uuidv4 } from 'uuid';
+const getOrCreateConversation = async (userId, otherUserId) => {
+  const cachedConvId = await getConversationCache(userId, otherUserId);
+  if (cachedConvId) {
+    return cachedConvId;
+  }
 
-// Create conversation if needed, then send message
+  const exist = await pool.query(
+    `SELECT DISTINCT cp1.conversation_id 
+     FROM conversation_participants cp1
+     JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id
+     WHERE cp1.user_id = $1 AND cp2.user_id = $2
+     LIMIT 1`,
+    [userId, otherUserId]
+  );
+
+  let convId;
+  if (exist.rows.length > 0) {
+    convId = exist.rows[0].conversation_id;
+  } else {
+    const newConv = await pool.query(
+      "INSERT INTO conversations (type) VALUES ($1) RETURNING id",
+      ['private']
+    );
+    convId = newConv.rows[0].id;
+    await pool.query(
+      "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1,$2),($1,$3)",
+      [convId, userId, otherUserId]
+    );
+  }
+
+  await setConversationCache(userId, otherUserId, convId);
+  return convId;
+};
+
+const insertMessageToDb = async (data) => {
+  const result = await pool.query(
+    `INSERT INTO messages 
+      (id, sender_id, message, seen, status, deleted, conversation_id, file_url, file_type, file_name, created_at) 
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT (id) DO NOTHING
+     RETURNING *`,
+    [
+      data.id,
+      data.sender_id,
+      data.message || null,
+      false,
+      'delivered',
+      false,
+      data.conversation_id,
+      data.file_url || null,
+      data.file_type || null,
+      data.file_name || null,
+      data.created_at,
+    ]
+  );
+  return result.rows[0];
+};
+
 export const sendmessage = async (req, res) => {
   try {
-    console.log("Incoming message request:", req.body);
+    console.log("Incoming message request:", { ...req.body, params: req.params });
     const { id, conversation_id, message, receiver_id, file, file_type, file_name } = req.body;
-    const currentUserId = req.user.id;
+    const routeReceiverId = Number(req.params.id);
+    const currentUserId = req.user?.id;
+    const actualReceiverId = Number(receiver_id || routeReceiverId);
 
-    // Validate input
+    if (!currentUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
     if ((!message || !message.trim()) && !file) {
       return res.status(400).json({ error: "Message or file is required" });
     }
 
-    if (!receiver_id) {
+    if (!actualReceiverId) {
       return res.status(400).json({ error: "receiver_id is required" });
     }
 
-    // Find or create conversation
-    let convId = conversation_id;
-    if (!convId) {
-      const exist = await pool.query(
-        `SELECT DISTINCT cp1.conversation_id 
-         FROM conversation_participants cp1
-         JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id
-         WHERE cp1.user_id = $1 AND cp2.user_id = $2
-         LIMIT 1`,
-        [currentUserId, receiver_id]
-      );
-
-      if (exist.rows.length > 0) {
-        convId = exist.rows[0].conversation_id;
-      } else {
-        const newConv = await pool.query(
-          "INSERT INTO conversations (type) VALUES ($1) RETURNING id",
-          ['private']
-        );
-        convId = newConv.rows[0].id;
-        await pool.query(
-          "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1,$2),($1,$3)",
-          [convId, currentUserId, receiver_id]
-        );
-      }
-    }
+    const convId = conversation_id || await getOrCreateConversation(currentUserId, actualReceiverId);
 
     let fileUrl = null;
-    
-    // Upload file to Cloudinary if base64 exists
     if (file) {
       try {
-        fileUrl = await uploadImage(file); // file is base64 string
+        fileUrl = await uploadImage(file);
         console.log("File uploaded to Cloudinary:", fileUrl);
       } catch (uploadError) {
         console.error("Cloudinary upload failed:", uploadError);
@@ -69,37 +104,65 @@ export const sendmessage = async (req, res) => {
     }
 
     const messageData = {
-      id: id,
+      id: uuidv4(),
       conversation_id: convId,
       message: message?.trim() || '',
-      receiver_id,
+      receiver_id: actualReceiverId,
       sender_id: currentUserId,
-      created_at:message?.created_at || new Date(),
+      created_at: new Date(),
       file_url: fileUrl,
       file_type: file_type || null,
       file_name: file_name || null,
     };
 
-    // Publish to queue/socket
-    await publish(messageData);
-    console.log("Message published to queue");
-    
-    // Save to database
-    await message_saving(messageData);
-    console.log("Message saved to database");
+    const savedMessage = await insertMessageToDb(messageData);
+    if (!savedMessage) {
+      console.warn("Duplicate message detected, continuing with idempotent path", messageData.id);
+    }
 
-    return res.status(200).json({ 
-      message: "Message sent successfully", 
+    await addRecentMessage(convId, messageData);
+    await publish(messageData);
+
+    if (!savedMessage) {
+      return res.status(200).json({
+        message: "Message already persisted or idempotent retry acknowledged",
+        conversation_id: convId,
+        temp_id: id,
+      });
+    }
+
+    return res.status(200).json({
+      message: "Message sent successfully",
       conversation_id: convId,
       file_url: fileUrl,
       temp_id: id,
     });
-
   } catch (error) {
-    console.error("Error sending message:", error);
-    res.status(500).json({ 
-      message: "Internal server error",
-      error: error.message 
+    console.error("Error sending message, fallback to queue:", error);
+    const { id, conversation_id, message, receiver_id, file, file_type, file_name } = req.body;
+    const routeReceiverId = Number(req.params.id);
+    const currentUserId = req.user?.id;
+    const actualReceiverId = Number(receiver_id || routeReceiverId);
+    const convId = conversation_id || null;
+
+    const fallbackMessage = {
+      id: uuidv4(),
+      conversation_id: convId,
+      message: message?.trim() || '',
+      receiver_id: actualReceiverId,
+      sender_id: currentUserId,
+      created_at: new Date(),
+      file_url: file || null,
+      file_type: file_type || null,
+      file_name: file_name || null,
+    };
+
+    await message_saving(fallbackMessage);
+    return res.status(200).json({
+      message: "Message accepted and queued. Delivery will resume when DB recovers.",
+      queued: true,
+      conversation_id: convId,
+      temp_id: id,
     });
   }
 };
@@ -109,38 +172,29 @@ export const getmessage = async (req, res) => {
   try {
     const { conversation_id, user_id } = req.body;
     const currentUserId = req.user.id;
-    const limit = 10;
+    const limit = Number(process.env.MESSAGE_LIMIT || 10);
+
+    if (!currentUserId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
     let convId = conversation_id;
-
     if (!convId && user_id) {
-      const existingConv = await pool.query(
-        `SELECT DISTINCT cp1.conversation_id 
-         FROM conversation_participants cp1
-         JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id
-         WHERE cp1.user_id = $1 AND cp2.user_id = $2
-         LIMIT 1`,
-        [currentUserId, user_id]
-      );
-
-      if (existingConv.rows.length > 0) {
-        convId = existingConv.rows[0].conversation_id;
-      } else {
-        const newConv = await pool.query(
-          "INSERT INTO conversations (type) VALUES ($1) RETURNING id",
-          ['private']
-        );
-        convId = newConv.rows[0].id;
-
-        await pool.query(
-          "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1,$2),($1,$3)",
-          [convId, currentUserId, user_id]
-        );
-      }
+      convId = await getOrCreateConversation(currentUserId, Number(user_id));
     }
 
     if (!convId) {
       return res.status(200).json({ message: "No conversation", data: [], hasMore: false });
+    }
+
+    const cachedMessages = await getRecentMessages(convId, limit);
+    if (cachedMessages.length > 0) {
+      return res.status(200).json({
+        message: "Messages fetched",
+        data: cachedMessages.slice(-limit),
+        conversation_id: convId,
+        hasMore: cachedMessages.length === limit,
+      });
     }
 
     const result = await pool.query(

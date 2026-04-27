@@ -16,6 +16,8 @@ export async function message_saving(data) {
       type: "exponential",
       delay: 1000,
     },
+    removeOnComplete: true,
+    removeOnFail: 100,
   });
   console.log("Job added:", res.id);
 }

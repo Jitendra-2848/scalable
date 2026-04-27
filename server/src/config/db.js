@@ -15,7 +15,14 @@ const pool = new Pool({
     // port: process.env.DB_PORT || process.env.DBPORT,
     // host: process.env.DB_HOST || process.env.HOST,
     // password: process.env.DB_PASSWORD || process.env.PASSWORD
-    connectionString: process.env.DATABASE_URL
+    connectionString: process.env.DATABASE_URL,
+    // ✅ Optimized connection pool for high concurrency
+    max: 50,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+    // Keep-alive for long-running queries
+    keepalives: 1,
+    keepalives_idle: 30,
 });
 
 pool.on("connect",()=>{

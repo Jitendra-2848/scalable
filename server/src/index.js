@@ -8,6 +8,7 @@ import cookie_parser from "cookie-parser";
 import User_API from "./routes/User.js";
 import {server,app,express} from "./utils/socket.js"
 import "./data/worker.js";
+import { createIndexes } from "./config/createIndexes.js";
 
 app.use(express.json());
 app.use(cookie_parser());
@@ -31,7 +32,10 @@ app.get("/", async (req, res) => {
 
 const PORT = process.env.PORT || 8000;
 
-const startServer = () => {
+const startServer = async () => {
+  // ✅ Create indexes on startup (improves query performance)
+  // await createIndexes();
+  
   server.listen(PORT, () => {
     console.log(`listening on PORT : ${PORT}`);
   });

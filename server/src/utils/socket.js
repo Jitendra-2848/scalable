@@ -65,18 +65,49 @@ const initSocket = async () => {
   console.log("✅ Redis subscribed");
 
   io.use((socket, next) => {
-    const cookieHeader = socket.handshake.headers.cookie; // string of cookies
-    const cookies = cookieHeader?.split(";").map(c => c.trim());
-    try {
-      const jwtCookie = cookies.find(c => c.startsWith("jwt=")).split("=")[1];
-      const decoded = jwt.verify(jwtCookie, process.env.JWT_SECRET);
-      console.log(decoded.userId);
-      socket.userId = decoded.userId;
-      next();
-    } catch (err) {
-      next(new Error("Invalid JWT"));
+  try {
+    let userId;
+
+    const authToken = socket.handshake.auth?.token;
+    const cookieHeader = socket.handshake.headers.cookie;
+
+    // ✅ PRIORITY 1: Access token (for stress test / mobile / APIs)
+    if (authToken) {
+      try {
+        const decoded = jwt.verify(
+          authToken,
+          process.env.ACCESS_TOKEN_SECRET
+        );
+        userId = decoded.id || decoded.userId;
+      } catch {}
     }
-  })
+
+    // ✅ PRIORITY 2: Cookie JWT (for browser)
+    if (!userId && cookieHeader) {
+      const cookies = cookieHeader.split(";").map((c) => c.trim());
+      const jwtCookie = cookies.find((c) => c.startsWith("jwt="));
+
+      if (jwtCookie) {
+        try {
+          const decoded = jwt.verify(
+            jwtCookie.split("=")[1],
+            process.env.JWT_SECRET
+          );
+          userId = decoded.userId || decoded.id;
+        } catch {}
+      }
+    }
+
+    if (!userId) {
+      return next(new Error("Invalid JWT"));
+    }
+
+    socket.userId = Number(userId);
+    next();
+  } catch (err) {
+    next(new Error("Socket auth failed"));
+  }
+});
   io.on("connection", (socket) => {
     socket.on("join", async (rawUserId) => {
   const userId = Number(rawUserId);
@@ -98,7 +129,7 @@ const initSocket = async () => {
     });
 
 socket.on("message", async (message) => {
-      console.log(userSocketMap.forEach((value, key) => console.log(key, value)));
+      // console.log(userSocketMap.forEach((value, key) => console.log(key, value)));
   console.log(message);
   if (socket.userId == null) return;
   // Emit with file metadata if present
